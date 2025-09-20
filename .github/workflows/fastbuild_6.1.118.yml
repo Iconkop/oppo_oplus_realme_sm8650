@@ -193,9 +193,6 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s ${{ env.KERNELSU_BRANCH }}
           cd ./KernelSU
           
-          # 获取完整的git历史记录，以便后续查找
-          git fetch --unshallow
-
           if [[ -n "${{ github.event.inputs.sukisu_version }}" ]]; then
             echo "检测到自定义版本号: ${{ github.event.inputs.sukisu_version }}"
             COMMIT_COUNT=$(expr "${{ github.event.inputs.sukisu_version }}" - 10700 2>/dev/null)
