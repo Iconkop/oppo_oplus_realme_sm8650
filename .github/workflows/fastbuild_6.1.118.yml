@@ -16,6 +16,9 @@ on:
 #  schedule:
 #    - cron: '0 23 * * *'  # UTC时间23点（北京时间次日7点）
     inputs:
+      boot_url:
+        description: "原始 boot.img 下载链接"
+        required: true
       ksu_type:
         description: 'KernelSU分支(SukiSU Ultra/KernelSU Next,默认SukiSU Ultra)'
         required: true
@@ -542,7 +545,53 @@ jobs:
           ccache -s
           echo "编译后空间:"
           df -h
-         
+
+      - name: Download magiskboot
+        run: |
+          wget -O magiskboot https://github.com/Iconkop/awrule/releases/download/v2025.09.08.1810/magiskboot
+          chmod +x magiskboot
+
+      - name: Download original boot.img
+        run: |
+          wget -O boot.img "${{ github.event.inputs.boot_url }}"
+          ls -lh boot.img
+
+      - name: Prepare kernel artifact
+        run: |
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb image
+          elif [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz image
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image image
+          else
+            echo "未找到内核构建产物"
+            exit 1
+          fi
+          ls -lh image
+
+      - name: Unpack original boot.img
+        run: |
+          ./magiskboot unpack boot.img
+          ls -lh
+
+      - name: Replace kernel
+        run: |
+          cp image kernel
+          echo "kernel replaced"
+
+      - name: Repack boot.img
+        run: |
+          ./magiskboot repack boot.img
+          mv new-boot.img repacked_boot.img
+          ls -lh repacked_boot.img
+
+      - name: Upload repacked boot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: repacked-boot
+          path: repacked_boot.img
+      
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'true' && ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
