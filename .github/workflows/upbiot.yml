@@ -1,18 +1,20 @@
-name: Unpack Boot Image
+name: Repack Boot Image
 
 on:
   workflow_dispatch:
     inputs:
       boot_url:
-        description: "Boot.img 下载链接"
+        description: "原始 boot.img 下载链接"
         required: true
-        default: "https://example.com/boot.img"
+      image_url:
+        description: "新内核 image 文件下载链接"
+        required: true
 
 jobs:
-  unpack:
+  repack:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Download magiskboot
@@ -20,20 +22,34 @@ jobs:
           wget -O magiskboot https://github.com/Iconkop/awrule/releases/download/v2025.09.08.1810/magiskboot
           chmod +x magiskboot
 
-      - name: Download boot.img
+      - name: Download original boot.img
         run: |
           wget -O boot.img "${{ github.event.inputs.boot_url }}"
           ls -lh boot.img
 
-      - name: Unpack boot.img
+      - name: Download new kernel image
         run: |
-          mkdir unpacked
-          ./magiskboot unpack boot.img
-          mv ramdisk.cpio* kernel* dtb* unpacked/ || true
-          ls -lh unpacked
+          wget -O image "${{ github.event.inputs.image_url }}"
+          ls -lh image
 
-      - name: Upload unpacked files
+      - name: Unpack original boot.img
+        run: |
+          ./magiskboot unpack boot.img
+          ls -lh
+
+      - name: Replace kernel
+        run: |
+          cp image kernel
+          echo "kernel replaced"
+
+      - name: Repack boot.img
+        run: |
+          ./magiskboot repack boot.img
+          mv new-boot.img repacked_boot.img
+          ls -lh repacked_boot.img
+
+      - name: Upload repacked boot.img
         uses: actions/upload-artifact@v4
         with:
-          name: unpacked-boot
-          path: unpacked
+          name: repacked-boot
+          path: repacked_boot.img
