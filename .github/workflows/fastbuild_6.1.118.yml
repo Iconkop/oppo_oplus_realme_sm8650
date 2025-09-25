@@ -510,7 +510,7 @@ jobs:
           cd kernel_workspace
           
           echo "正在下载 magiskboot..."
-          curl -LO "https://github.com/Iconkop/awrule/releases/download/v2025.09.08.1810/magiskboot"
+          curl -LO "https://raw.githubusercontent.com/Iconkop/oppo_oplus_realme_sm8650/refs/heads/main/magiskboot"
           chmod +x magiskboot
 
           echo "正在下载原始 boot.img..."
