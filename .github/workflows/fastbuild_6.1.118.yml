@@ -16,9 +16,6 @@ on:
 #  schedule:
 #    - cron: '0 23 * * *'  # UTC时间23点（北京时间次日7点）
     inputs:
-      boot_url:
-        description: "原始 boot.img 下载链接"
-        required: true
       ksu_type:
         description: 'KernelSU分支(SukiSU Ultra/KernelSU Next,默认SukiSU Ultra)'
         required: true
@@ -545,57 +542,7 @@ jobs:
           ccache -s
           echo "编译后空间:"
           df -h
-
-      - name: Download magiskboot
-        run: |
-          wget -O magiskboot https://github.com/Iconkop/awrule/releases/download/v2025.09.08.1810/magiskboot
-          chmod +x magiskboot
-
-      - name: Download original boot.img
-        run: |
-          wget -O boot.img "${{ github.event.inputs.boot_url }}"
-          ls -lh boot.img
-
-      - name: Prepare kernel artifact
-        run: |
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb Image
-            cp out/arch/arm64/boot/Image.gz-dtb image
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz Image
-            cp out/arch/arm64/boot/Image.gz image
-          elif [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image Image
-            cp out/arch/arm64/boot/Image image
-          else
-            echo "未找到内核构建产物"
-            exit 1
-          fi
-          ls -lh Image
-          ls -lh image
-
-      - name: Unpack original boot.img
-        run: |
-          ./magiskboot unpack boot.img
-          ls -lh
-
-      - name: Replace kernel
-        run: |
-          cp image kernel
-          echo "kernel replaced"
-
-      - name: Repack boot.img
-        run: |
-          ./magiskboot repack boot.img
-          mv new-boot.img repacked_boot.img
-          ls -lh repacked_boot.img
-
-      - name: Upload repacked boot.img
-        uses: actions/upload-artifact@v4
-        with:
-          name: repacked-boot-${{ env.KSUVER }}
-          path: repacked_boot.img
-      
+         
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'true' && ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
@@ -606,8 +553,6 @@ jobs:
             ./patch_linux
             rm -f Image
             mv oImage Image
-            # 同步更新image文件
-            cp Image ../../../image
           fi
           
       - name: 克隆 AnyKernel3 并打包
@@ -616,13 +561,7 @@ jobs:
           git clone https://github.com/cctv18/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cd AnyKernel3
-          # 优先使用经过KPM修补的内核镜像
-          if [ -f ../common/out/arch/arm64/boot/Image ]; then
-            cp ../common/out/arch/arm64/boot/Image ./Image
-          else
-            # 否则使用之前准备的image文件
-            cp ../image ./Image
-          fi
+          cp ../common/out/arch/arm64/boot/Image ./Image
           if [[ ! -f ./Image ]]; then
             echo "未找到内核镜像文件，构建可能出错"
             exit 1
@@ -661,18 +600,6 @@ jobs:
         with:
           name: Kernel_ZIP_Artifacts
           path: ./release_zips
-          
-      - name: 下载 boot.img 工件
-        uses: actions/download-artifact@v4
-        with:
-          name: repacked-boot-${{ needs.build.outputs.ksuver }}
-          path: ./release_boot
-          
-      - name: 重命名 boot.img
-        run: |
-          cd release_boot
-          mv repacked_boot.img "${{ env.BOOT_IMG_NAME }}"
-          echo "重命名为: ${{ env.BOOT_IMG_NAME }}"
 
       - name: 设置环境变量
         run: |
@@ -721,8 +648,6 @@ jobs:
           echo "lz4_zstd_enable=$lz4_zstd_enable" >> $GITHUB_ENV
           echo "ssg_enable=$ssg_enable" >> $GITHUB_ENV
           echo "rekernel_enable=$rekernel_enable" >> $GITHUB_ENV
-          BOOT_IMG_NAME="boot-${{ env.FULL_VERSION }}.img"
-          echo "BOOT_IMG_NAME=$BOOT_IMG_NAME" >> $GITHUB_ENV
          
       - name: 创建发布
         id: create_release
@@ -761,4 +686,3 @@ jobs:
           prerelease: false
           files: |
             release_zips/AnyKernel3_*.zip
-            release_boot/${{ env.BOOT_IMG_NAME }}
