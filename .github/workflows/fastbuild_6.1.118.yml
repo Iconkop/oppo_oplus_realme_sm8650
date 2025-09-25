@@ -397,8 +397,29 @@ jobs:
             echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> ./common/arch/arm64/configs/gki_defconfig
             #由于部分机型的vintf兼容性检测规则，在开启CONFIG_IP6_NF_NAT后开机会出现"您的设备内部出现了问题。请联系您的设备制造商了解详情。"的提示，故添加一个配置修复补丁，在编译内核时隐藏CONFIG_IP6_NF_NAT=y但不影响对应功能编译
             cd common
-            wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/other_patch/config.patch
-            patch -p1 -F 3 < config.patch || true
+            wget https://github.com/cctv18/Baseband-guard/archive/refs/heads/master.zip
+            unzip -q master.zip
+            mv "Baseband-guard-master" baseband-guard
+            printf '\nobj-$(CONFIG_BBG) += baseband-guard/\n' >> ./Makefile
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/landlock/landlock,baseband_guard/ } }' ./Kconfig
+            awk '
+            /endmenu/ { last_endmenu_line = NR }
+            { lines[NR] = $0 }
+            END {
+              for (i=1; i<=NR; i++) {
+                if (i == last_endmenu_line) {
+                  sub(/endmenu/, "", lines[i]);
+                  print lines[i] "source \"security/baseband-guard/Kconfig\""
+                  print ""
+                  print "endmenu"
+                } else {
+                    print lines[i]
+                }
+              }
+            }
+            ' ./Kconfig > Kconfig.tmp && mv Kconfig.tmp ./Kconfig
+            sed -i 's/selinuxfs.o //g' "./selinux/Makefile"
+            cat "./baseband-guard/sepatch.txt" >> "./selinux/Makefile"
           fi
 
       - name: 添加 BBR 等一系列拥塞控制算法
@@ -559,15 +580,19 @@ jobs:
       - name: Prepare kernel artifact
         run: |
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb Image
             cp out/arch/arm64/boot/Image.gz-dtb image
           elif [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz Image
             cp out/arch/arm64/boot/Image.gz image
           elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image Image
             cp out/arch/arm64/boot/Image image
           else
             echo "未找到内核构建产物"
             exit 1
           fi
+          ls -lh Image
           ls -lh image
 
       - name: Unpack original boot.img
@@ -589,7 +614,7 @@ jobs:
       - name: Upload repacked boot.img
         uses: actions/upload-artifact@v4
         with:
-          name: repacked-boot
+          name: repacked-boot-${{ env.KSUVER }}
           path: repacked_boot.img
       
       - name: 应用KPM并修补内核
@@ -602,6 +627,8 @@ jobs:
             ./patch_linux
             rm -f Image
             mv oImage Image
+            # 同步更新image文件
+            cp Image ../../../image
           fi
           
       - name: 克隆 AnyKernel3 并打包
@@ -610,7 +637,13 @@ jobs:
           git clone https://github.com/cctv18/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cd AnyKernel3
-          cp ../common/out/arch/arm64/boot/Image ./Image
+          # 优先使用经过KPM修补的内核镜像
+          if [ -f ../common/out/arch/arm64/boot/Image ]; then
+            cp ../common/out/arch/arm64/boot/Image ./Image
+          else
+            # 否则使用之前准备的image文件
+            cp ../image ./Image
+          fi
           if [[ ! -f ./Image ]]; then
             echo "未找到内核镜像文件，构建可能出错"
             exit 1
@@ -649,6 +682,18 @@ jobs:
         with:
           name: Kernel_ZIP_Artifacts
           path: ./release_zips
+          
+      - name: 下载 boot.img 工件
+        uses: actions/download-artifact@v4
+        with:
+          name: repacked-boot-${{ needs.build.outputs.ksuver }}
+          path: ./release_boot
+          
+      - name: 重命名 boot.img
+        run: |
+          cd release_boot
+          mv repacked_boot.img "${{ env.BOOT_IMG_NAME }}"
+          echo "重命名为: ${{ env.BOOT_IMG_NAME }}"
 
       - name: 设置环境变量
         run: |
@@ -697,6 +742,8 @@ jobs:
           echo "lz4_zstd_enable=$lz4_zstd_enable" >> $GITHUB_ENV
           echo "ssg_enable=$ssg_enable" >> $GITHUB_ENV
           echo "rekernel_enable=$rekernel_enable" >> $GITHUB_ENV
+          BOOT_IMG_NAME="boot-${{ env.FULL_VERSION }}.img"
+          echo "BOOT_IMG_NAME=$BOOT_IMG_NAME" >> $GITHUB_ENV
          
       - name: 创建发布
         id: create_release
@@ -735,3 +782,4 @@ jobs:
           prerelease: false
           files: |
             release_zips/AnyKernel3_*.zip
+            release_boot/${{ env.BOOT_IMG_NAME }}
