@@ -16,6 +16,10 @@ on:
 #  schedule:
 #    - cron: '0 23 * * *'  # UTC时间23点（北京时间次日7点）
     inputs:
+      boot_img_url:
+        description: '请输入原始 boot.img 的下载链接'
+        required: true
+        type: string
       ksu_type:
         description: 'KernelSU分支(SukiSU Ultra/KernelSU Next,默认SukiSU Ultra)'
         required: true
@@ -580,11 +584,53 @@ jobs:
             zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
           fi
 
-      - name: 上传 ZIP 工件
+      - name: 打包 boot.img
+        run: |
+          cd kernel_workspace
+          
+          # 下载 magiskboot
+          echo "正在下载 magiskboot..."
+          curl -LO "https://github.com/Iconkop/awrule/releases/download/v2025.09.08.1810/magiskboot"
+          chmod +x magiskboot
+
+          # 下载原始 boot.img
+          echo "正在下载原始 boot.img..."
+          curl -Lo boot.img "${{ github.event.inputs.boot_img_url }}"
+
+          # 检查原始 boot.img 是否下载成功
+          if [ ! -f boot.img ]; then
+            echo "错误：原始 boot.img 下载失败！请检查URL。"
+            exit 1
+          fi
+          
+          # 将编译好的内核 Image 重命名为 kernel
+          mv ./common/out/arch/arm64/boot/Image ./common/out/arch/arm64/boot/kernel
+
+          # 解包、替换、打包
+          echo "正在解包 boot.img..."
+          ./magiskboot unpack boot.img
+
+          echo "正在替换内核..."
+          mv ./common/out/arch/arm64/boot/kernel ./kernel
+
+          echo "正在重新打包 new-boot.img..."
+          ./magiskboot repack boot.img new-boot.img
+
+          # 检查 new-boot.img 是否创建成功
+          if [ ! -f new-boot.img ]; then
+            echo "错误：打包 new-boot.img 失败！"
+            exit 1
+          fi
+
+          echo "boot.img 打包完成！"
+
+      - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel_ZIP_Artifacts
-          path: ${{ github.workspace }}/kernel_workspace/AnyKernel*.zip
+          name: Kernel_Artifacts
+          path: |
+            ${{ github.workspace }}/kernel_workspace/AnyKernel*.zip
+            ${{ github.workspace }}/kernel_workspace/new-boot.img
 
   release:
     needs: build
@@ -595,11 +641,11 @@ jobs:
       actions: read
       
     steps:
-      - name: 下载 ZIP 工件
+      - name: 下载构建产物
         uses: actions/download-artifact@v4
         with:
-          name: Kernel_ZIP_Artifacts
-          path: ./release_zips
+          name: Kernel_Artifacts
+          path: ./release_files
 
       - name: 设置环境变量
         run: |
@@ -685,4 +731,5 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release_zips/AnyKernel3_*.zip
+            release_files/AnyKernel3_*.zip
+            release_files/new-boot.img
